@@ -31,6 +31,20 @@ with st.sidebar:
     for doc in chats_query:
         if st.button(f"⏳ {doc.id}"):
             load_session(doc.id)
+# --- RENDER EXISTING MESSAGES ---
+# This ensures that whenever the page reruns, it "re-plays" the history
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# --- INPUT AREA ---
+if prompt := st.chat_input("Input system command..."):
+    # 1. Add to state
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    # 2. Save to Firestore
+    save_current_session()
+    # 3. Rerun to show the new message immediately
+    st.rerun()
 
 # --- MAIN INTERFACE ---
 # (Keep your existing display logic and st.chat_input here)
