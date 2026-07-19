@@ -17,38 +17,50 @@ def load_session(session_id):
         st.session_state.session_id = session_id
         st.rerun()
 
+# --- INITIALIZATION ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "session_id" not in st.session_state:
+    st.session_state.session_id = f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
 # --- SIDEBAR (HISTORY) ---
 with st.sidebar:
-    # Query Firestore
-    chats_query = aether_brain.db.collection("chats").order_by("last_updated", direction="DESCENDING").stream()
-    
+    st.subheader("Chat History")
     if st.button("➕ New Session"):
         save_current_session()
         st.session_state.messages = []
         st.session_state.session_id = f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         st.rerun()
 
+    chats_query = aether_brain.db.collection("chats").order_by("last_updated", direction="DESCENDING").stream()
     for doc in chats_query:
         if st.button(f"⏳ {doc.id}"):
             load_session(doc.id)
-# --- RENDER EXISTING MESSAGES ---
-# This ensures that whenever the page reruns, it "re-plays" the history
+
+# --- RENDER MESSAGES ---
+# Render history first so it's always visible above the input
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# --- INPUT AREA ---
+# --- SINGLE INPUT AREA ---
+# This is the only place st.chat_input should appear
 if prompt := st.chat_input("Input system command..."):
-    # 1. Add to state
+    # 1. Update UI immediately
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    
+    # 2. Append to state
     st.session_state.messages.append({"role": "user", "content": prompt})
-    # 2. Save to Firestore
+    
+    # 3. Get AI response
+    response = aether_brain.get_ai_response(st.session_state.messages)
+    
+    # 4. Append AI response to state
+    st.session_state.messages.append({"role": "assistant", "content": response})
+    
+    # 5. Save everything to Firestore
     save_current_session()
-    # 3. Rerun to show the new message immediately
-    st.rerun()
-
-# --- MAIN INTERFACE ---
-# (Keep your existing display logic and st.chat_input here)
-if prompt := st.chat_input("Input system command..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    save_current_session()
+    
+    # 6. Rerun to refresh the display
     st.rerun()
