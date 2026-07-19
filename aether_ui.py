@@ -16,16 +16,18 @@ with st.sidebar:
         st.session_state.session_id = f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         st.rerun()
 
-    # Query Firestore for previous sessions
-    chats_query = aether_brain.db.collection("chats").order_by("last_updated", direction="DESCENDING").stream()
-    for doc in chats_query:
-        if st.button(f"⏳ {doc.id}"):
-            # Load function
-            chat_doc = aether_brain.db.collection("chats").document(doc.id).get()
-            if chat_doc.exists:
-                st.session_state.messages = chat_doc.to_dict().get("messages", [])
-                st.session_state.session_id = doc.id
-                st.rerun()
+    # Query Firestore
+    try:
+        chats_query = aether_brain.db.collection("chats").order_by("last_updated", direction="DESCENDING").stream()
+        for doc in chats_query:
+            if st.button(f"⏳ {doc.id}"):
+                chat_doc = aether_brain.db.collection("chats").document(doc.id).get()
+                if chat_doc.exists:
+                    st.session_state.messages = chat_doc.to_dict().get("messages", [])
+                    st.session_state.session_id = doc.id
+                    st.rerun()
+    except Exception as e:
+        st.sidebar.warning("Could not load history.")
 
 # --- RENDER MESSAGES ---
 for msg in st.session_state.messages:
@@ -34,18 +36,25 @@ for msg in st.session_state.messages:
 
 # --- SINGLE INPUT ---
 if prompt := st.chat_input("Input system command..."):
-    # Append User Message
+    # 1. Update UI
+    with st.chat_message("user"):
+        st.markdown(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
     
-    # Get AI Response
-    response = aether_brain.get_ai_response(st.session_state.messages)
+    # 2. Get AI Response with Spinner
+    with st.spinner("Processing through Aether keys..."):
+        response = aether_brain.get_ai_response(st.session_state.messages)
     
-    # Append Assistant Message
+    # 3. Append Assistant Message
     st.session_state.messages.append({"role": "assistant", "content": response})
     
-    # Save to Firestore
-    aether_brain.db.collection("chats").document(st.session_state.session_id).set({
-        "messages": st.session_state.messages,
-        "last_updated": aether_brain.firestore.SERVER_TIMESTAMP
-    })
+    # 4. Save to Firestore
+    try:
+        aether_brain.db.collection("chats").document(st.session_state.session_id).set({
+            "messages": st.session_state.messages,
+            "last_updated": aether_brain.firestore.SERVER_TIMESTAMP
+        }, merge=True) # merge=True keeps existing data safe
+    except Exception as e:
+        st.error("Failed to save to database.")
+        
     st.rerun()
